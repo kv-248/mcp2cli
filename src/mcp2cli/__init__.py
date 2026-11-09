@@ -2665,6 +2665,7 @@ def handle_graphql(
     execute_graphql(
         args, cmd, url, schema, auth_headers, pretty, raw, toon=toon,
         fields_override=fields_override, oauth_provider=oauth_provider,
+        head=head,
         json_output=json_output,
     )
 
@@ -5070,6 +5071,7 @@ def handle_mcp(
         cmd.tool_name, arguments, False, pretty, raw, key, ttl, refresh,
         toon=toon, transport=transport, oauth_provider=oauth_provider,
         json_output=json_output,
+        head=head,
     )
 
     # Record usage after successful execution
@@ -5593,13 +5595,13 @@ def _handle_session_operations(
     sess_name = pre_args.session
     _sess_out = dict(
         pretty=pre_args.pretty, raw=pre_args.raw, toon=pre_args.toon,
-        json_output=pre_args.json_output,
+        json_output=pre_args.json_output, head=pre_args.head,
     )
     if pre_args.complete:
         result = _session_request(
             sess_name, "complete", {"spec": pre_args.complete}
         )
-        output_result(result, head=pre_args.head, **_sess_out)
+        output_result(result, **_sess_out)
         return True
 
     if pre_args.schema_tool:
@@ -5853,6 +5855,7 @@ def _handle_openapi_mode(
         args, cmd, base_url, auth_headers,
         pre_args.pretty, pre_args.raw, toon=pre_args.toon,
         oauth_provider=oauth_provider, json_output=pre_args.json_output,
+        head=pre_args.head,
     )
 
     # Record usage after successful execution

@@ -5767,6 +5767,50 @@ def _resolve_resource_prompt_actions(pre_args):
     return resource_action, resource_uri, prompt_action, prompt_name, prompt_arguments
 
 
+# A server URL names variables as ``{name}``. The name itself is not a URL
+# component, so it contains neither brace.
+_OPENAPI_SERVER_VAR = re.compile(r"\{([^{}]+)\}")
+
+
+def _expand_openapi_server_url(server: dict) -> str:
+    """Substitute OpenAPI server URL variables with their declared defaults.
+
+    ``servers[].url`` is a template (``https://api.example.com/{version}``),
+    not a request URL. The variable object's ``default`` is required by the
+    spec and is the value a client sends when the caller has not chosen
+    another one. Leaving the braces in place percent-encodes them, so the
+    request goes to a path the server does not have
+    (``/%7Bversion%7D/items`` instead of ``/v1/items``).
+
+    A variable with no usable default is left untouched: dropping it would
+    silently request a different resource. ``--base-url`` never comes through
+    here; an explicit root is used as given.
+    """
+    url = server.get("url") or ""
+    if not isinstance(url, str):
+        return ""
+    if "{" not in url:
+        return url
+    variables = server.get("variables")
+    if not isinstance(variables, dict):
+        return url
+
+    def replace(match: re.Match) -> str:
+        spec = variables.get(match.group(1))
+        if not isinstance(spec, dict) or "default" not in spec:
+            return match.group(0)
+        default = spec["default"]
+        # YAML parses an unquoted number as int or float. The spec's type for
+        # a default is a string; stringify those numbers so the digits are
+        # what land in the URL. Anything else (a bool YAML coerced, a list)
+        # is not a URL component, so the placeholder stays.
+        if isinstance(default, bool) or not isinstance(default, (str, int, float)):
+            return match.group(0)
+        return str(default)
+
+    return _OPENAPI_SERVER_VAR.sub(replace, url)
+
+
 def _handle_openapi_mode(
     pre_args,
     pre: argparse.ArgumentParser,
@@ -5822,7 +5866,7 @@ def _handle_openapi_mode(
     if not base_url:
         servers = spec.get("servers", [])
         if servers and isinstance(servers[0], dict):
-            base_url = servers[0].get("url", "")
+            base_url = _expand_openapi_server_url(servers[0])
         # If base_url is relative or empty, derive from spec source
         if not base_url or not base_url.startswith("http"):
             if pre_args.spec and pre_args.spec.startswith("http"):

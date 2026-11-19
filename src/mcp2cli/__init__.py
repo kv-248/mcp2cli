@@ -2231,12 +2231,40 @@ def graphql_type_to_python(
     return py_type, is_non_null, None
 
 
+def _graphql_field_requires_argument(field: dict) -> bool:
+    """Whether *field* needs an argument the automatic selection cannot supply.
+
+    A GraphQL argument is mandatory when its type is non-null and it has no
+    default. Selecting ``repositories(first: Int!)`` or ``avatar(size: Int!)``
+    without that argument makes the whole operation invalid, so those fields
+    are left out. ``--fields`` can still request them. Only the outermost type
+    wrapper counts: ``tags: [String!]`` is optional, ``labels: [String!]!`` is
+    not. A non-null argument that publishes a default can be omitted.
+    """
+    args = field.get("args") or []
+    if not isinstance(args, list):
+        return False
+    for arg in args:
+        if not isinstance(arg, dict):
+            continue
+        arg_type = arg.get("type") or {}
+        if (
+            isinstance(arg_type, dict)
+            and arg_type.get("kind") == "NON_NULL"
+            and arg.get("defaultValue") is None
+        ):
+            return True
+    return False
+
+
 def _build_selection_set(
     type_ref: dict, types_by_name: dict, depth: int = 2, seen: set | None = None
 ) -> str:
     """Auto-generate a GraphQL selection set from a return type.
 
     Depth 2 = scalar fields + one level of nested object scalar fields.
+    Fields that require an argument are omitted; requesting one without that
+    argument is a GraphQL error and fails the whole operation.
     """
     if seen is None:
         seen = set()
@@ -2260,6 +2288,8 @@ def _build_selection_set(
     seen = seen | {type_name}
     parts = []
     for f in fields:
+        if _graphql_field_requires_argument(f):
+            continue
         f_named, _, _ = _unwrap_type(f["type"])
         f_kind = f_named.get("kind", "")
         if f_kind in ("SCALAR", "ENUM"):
